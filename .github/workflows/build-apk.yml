@@ -10,6 +10,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -18,25 +22,37 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
+      - name: Install OS packages (wget unzip) for sdkmanager
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip tar
+
       - name: Install Android commandline tools and SDK (platform 36)
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
           set -e
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT}"
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+          # download commandline tools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline.zip
           unzip -q /tmp/cmdline.zip -d /tmp/cmdline
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          mv /tmp/cmdline/cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null
-          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-36" "build-tools;33.0.2"
+          mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+          mv /tmp/cmdline/cmdline-tools/* "${ANDROID_SDK_ROOT}/cmdline-tools/latest/"
+          # add sdkmanager to PATH for this step
+          export PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" --licenses || true
+          "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-36" "build-tools;33.0.2"
+
+      - name: Print debug info (Java/SDK)
+        run: |
+          java -version || true
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "${ANDROID_SDK_ROOT}"
+          which sdkmanager || true
+          "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --version || true
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -49,8 +65,6 @@ jobs:
 
       - name: Build APK (assembleDebug)
         env:
-          ANDROID_HOME: ${{ github.workspace }}/android-sdk
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
           PATH: ${{ github.workspace }}/android-sdk/platform-tools:${PATH}
         run: ./gradlew :doom:assembleDebug --no-daemon
 
